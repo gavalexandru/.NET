@@ -15,9 +15,10 @@ public static class LogEvents
 
 public record OrderCreationMetrics
 {
-    public string OperationId { get; init; }
-    public string OrderTitle { get; init; }
-    public string ISBN { get; init; }
+    
+    public required string OperationId { get; init; }
+    public required string OrderTitle { get; init; }
+    public required string ISBN { get; init; }
     public OrderCategory Category { get; init; }
     public TimeSpan ValidationDuration { get; init; }
     public TimeSpan DatabaseSaveDuration { get; init; }

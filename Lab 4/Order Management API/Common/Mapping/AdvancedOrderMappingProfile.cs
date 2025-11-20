@@ -3,6 +3,7 @@ using System.Globalization;
 using AutoMapper;
 using Order_Management_API.Features.Orders;
 using Order_Management_API.Features.Orders.DTOs;
+using Order_Management_API.Common.Mapping; // Ensure access to LocalizedResolvers
 
 public class AdvancedOrderMappingProfile : Profile
 {
@@ -17,11 +18,15 @@ public class AdvancedOrderMappingProfile : Profile
 
         // Map Order Entity to Order DTO
         CreateMap<Order, OrderProfileDto>()
-            .ForMember(dest => dest.CategoryDisplayName, opt => opt.MapFrom<CategoryDisplayResolver>())
+            // --- Use Localized Resolvers ---
+            .ForMember(dest => dest.CategoryDisplayName, opt => opt.MapFrom<LocalizedCategoryDisplayResolver>())
+            .ForMember(dest => dest.AvailabilityStatus, opt => opt.MapFrom<LocalizedAvailabilityStatusResolver>())
+            
+            // --- Standard Resolvers ---
             .ForMember(dest => dest.FormattedPrice, opt => opt.MapFrom<PriceFormatterResolver>())
             .ForMember(dest => dest.PublishedAge, opt => opt.MapFrom<PublishedAgeResolver>())
             .ForMember(dest => dest.AuthorInitials, opt => opt.MapFrom<AuthorInitialsResolver>())
-            .ForMember(dest => dest.AvailabilityStatus, opt => opt.MapFrom<AvailabilityStatusResolver>())
+            
             // Conditional Mapping for Price (10% discount for Children)
             .ForMember(dest => dest.Price, opt =>
             {
@@ -37,22 +42,7 @@ public class AdvancedOrderMappingProfile : Profile
     }
 }
 
-// Custom Value Resolvers
-
-public class CategoryDisplayResolver : IValueResolver<Order, OrderProfileDto, string>
-{
-    public string Resolve(Order source, OrderProfileDto destination, string destMember, ResolutionContext context)
-    {
-        return source.Category switch
-        {
-            OrderCategory.Fiction => "Fiction & Literature",
-            OrderCategory.NonFiction => "Non-Fiction",
-            OrderCategory.Technical => "Technical & Professional",
-            OrderCategory.Children => "Children's Orders",
-            _ => "Uncategorized"
-        };
-    }
-}
+// Standard Resolvers kept for logic like Price/Age/Initials
 
 public class PriceFormatterResolver : IValueResolver<Order, OrderProfileDto, string>
 {
@@ -81,27 +71,10 @@ public class AuthorInitialsResolver : IValueResolver<Order, OrderProfileDto, str
 {
     public string Resolve(Order source, OrderProfileDto destination, string destMember, ResolutionContext context)
     {
-        if (string.IsNullOrWhiteSpace(source.Author))
-            return "?";
-
+        if (string.IsNullOrWhiteSpace(source.Author)) return "?";
         var names = source.Author.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-        if (names.Length > 1)
-            return $"{char.ToUpper(names[0][0])}{char.ToUpper(names[^1][0])}";
-        if (names.Length == 1)
-            return $"{char.ToUpper(names[0][0])}";
-        
+        if (names.Length > 1) return $"{char.ToUpper(names[0][0])}{char.ToUpper(names[^1][0])}";
+        if (names.Length == 1) return $"{char.ToUpper(names[0][0])}";
         return "?";
-    }
-}
-
-public class AvailabilityStatusResolver : IValueResolver<Order, OrderProfileDto, string>
-{
-    public string Resolve(Order source, OrderProfileDto destination, string destMember, ResolutionContext context)
-    {
-        if (!source.IsAvailable) return "Out of Stock";
-        if (source.StockQuantity == 0) return "Unavailable";
-        if (source.StockQuantity == 1) return "Last Copy";
-        if (source.StockQuantity <= 5) return "Limited Stock";
-        return "In Stock";
     }
 }

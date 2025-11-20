@@ -33,15 +33,16 @@ public class CorrelationMiddleware
         else
         {
             correlationId = Guid.NewGuid().ToString();
-            context.Request.Headers.Add(CorrelationIdHeaderName, correlationId);
+            
+            context.Request.Headers.Append(CorrelationIdHeaderName, correlationId);
         }
 
         if (!context.Response.Headers.ContainsKey(CorrelationIdHeaderName))
         {
-            context.Response.Headers.Add(CorrelationIdHeaderName, context.TraceIdentifier);
+            
+            context.Response.Headers.Append(CorrelationIdHeaderName, context.TraceIdentifier);
         }
         
         return context.TraceIdentifier;
     }
 }
-

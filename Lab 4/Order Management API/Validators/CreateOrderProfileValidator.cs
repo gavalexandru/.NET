@@ -1,11 +1,13 @@
 using Microsoft.Extensions.Logging;
-
-namespace Order_Management_API.Validators;
 using System.Text.RegularExpressions;
 using FluentValidation;
 using Microsoft.EntityFrameworkCore;
+using Order_Management_API.Common.Logging;
+using Order_Management_API.Features.Orders;
 using Order_Management_API.Features.Orders.DTOs;
 using Order_Management_API.Persistence;
+
+namespace Order_Management_API.Validators;
 
 public class CreateOrderProfileValidator : AbstractValidator<CreateOrderProfileRequest>
 {
@@ -46,7 +48,8 @@ public class CreateOrderProfileValidator : AbstractValidator<CreateOrderProfileR
 
         RuleFor(x => x.StockQuantity)
             .GreaterThanOrEqualTo(0)
-            .LessThanOrEqualTo(100000).WithMessage("Stock quantity is unreasonably high.");
+            .LessThanOrEqualTo(100000).WithMessage("Stock quantity is unreasonably high.")
+            .Must(BeValidStockLevel).WithMessage("Invalid stock level configuration."); // Trigger for logging
             
         RuleFor(x => x.CoverImageUrl)
             .Must(BeValidImageUrl).When(x => !string.IsNullOrEmpty(x.CoverImageUrl))
@@ -56,16 +59,19 @@ public class CreateOrderProfileValidator : AbstractValidator<CreateOrderProfileR
             .MustAsync(PassBusinessRules).WithMessage("The order violates one or more business rules.");
             
         // Conditional Validation
-        When(x => x.Category == Features.Orders.OrderCategory.Technical, () =>
+        When(x => x.Category == OrderCategory.Technical, () =>
         {
             RuleFor(x => x.Price).GreaterThanOrEqualTo(20).WithMessage("Technical orders must have a minimum price of $20.00.");
             RuleFor(x => x.PublishedDate).Must(d => d > DateTime.UtcNow.AddYears(-5)).WithMessage("Technical orders must be published within the last 5 years.");
+            // Requirement: Must contain technical keywords in Title
+            RuleFor(x => x.Title).Must(ContainTechnicalKeywords).WithMessage("Technical titles must contain keywords like 'C#', 'Guide', or 'Advanced'.");
         });
         
-        When(x => x.Category == Features.Orders.OrderCategory.Children, () =>
+        When(x => x.Category == OrderCategory.Children, () =>
         {
             RuleFor(x => x.Price).LessThanOrEqualTo(50).WithMessage("Children's orders cannot exceed $50.00.");
-            RuleFor(x => x.Title).Must(t => !t.Contains("inappropriate", StringComparison.OrdinalIgnoreCase)).WithMessage("Title is not appropriate for children.");
+            // Requirement: Title must be appropriate
+            RuleFor(x => x.Title).Must(BeAppropriateForChildren).WithMessage("Title is not appropriate for children.");
         });
         
         // Cross-field Validation
@@ -74,9 +80,24 @@ public class CreateOrderProfileValidator : AbstractValidator<CreateOrderProfileR
         });
     }
 
+    
+    private bool ContainTechnicalKeywords(string title)
+    {
+        if (string.IsNullOrWhiteSpace(title)) return false;
+        var keywords = new[] { "C#", ".NET", "Guide", "Advanced", "Professional", "Programming", "Architecture" };
+        return keywords.Any(k => title.Contains(k, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private bool BeAppropriateForChildren(string title)
+    {
+        if (string.IsNullOrWhiteSpace(title)) return false;
+        // Reuse logic or defined words, checking negative condition
+        var inappropriateWords = new List<string> { "violence", "horror", "adult", "crime" };
+        return !inappropriateWords.Any(w => title.Contains(w, StringComparison.OrdinalIgnoreCase));
+    }
+
     private Task<bool> BeValidTitle(string title, CancellationToken token)
     {
-        // Dummy list of inappropriate words
         var inappropriateWords = new List<string> { "badword", "profanity" };
         return Task.FromResult(!inappropriateWords.Any(w => title.Contains(w, StringComparison.OrdinalIgnoreCase)));
     }
@@ -102,10 +123,21 @@ public class CreateOrderProfileValidator : AbstractValidator<CreateOrderProfileR
 
     private async Task<bool> BeUniqueISBN(string isbn, CancellationToken token)
     {
+        // ISBN validation logging with ISBNValidationPerformed event
+        _logger.LogInformation(LogEvents.ISBNValidationPerformed, "Performing ISBN uniqueness check for {ISBN}", isbn);
+        
         using (_logger.BeginScope("Validation:BeUniqueISBN for {ISBN}", isbn))
         {
              return !await _context.Orders.AnyAsync(o => o.ISBN == isbn, token);
         }
+    }
+    
+    
+    private bool BeValidStockLevel(int stock)
+    {
+        // Stock validation logging with StockValidationPerformed event
+        _logger.LogInformation(LogEvents.StockValidationPerformed, "Validating stock level: {Stock}", stock);
+        return true; // Actual logic handled by other rules, this just ensures logging triggers
     }
 
     private bool BeValidImageUrl(string? url)

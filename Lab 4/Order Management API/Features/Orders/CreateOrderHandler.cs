@@ -1,5 +1,7 @@
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Caching.Memory;
+using Order_Management_API.Services;
 
 namespace Order_Management_API.Features.Orders;
 
@@ -16,13 +18,23 @@ public class CreateOrderHandler
     private readonly ILogger<CreateOrderHandler> _logger;
     private readonly IValidator<CreateOrderProfileRequest> _validator;
     private readonly IMapper _mapper;
+    private readonly IMemoryCache _cache;
+    private readonly OrderMetricsStore _metricsStore;
 
-    public CreateOrderHandler(OrderManagementContext context, ILogger<CreateOrderHandler> logger, IValidator<CreateOrderProfileRequest> validator, IMapper mapper)
+    public CreateOrderHandler(
+        OrderManagementContext context, 
+        ILogger<CreateOrderHandler> logger, 
+        IValidator<CreateOrderProfileRequest> validator, 
+        IMapper mapper,
+        IMemoryCache cache,
+        OrderMetricsStore metricsStore)
     {
         _context = context;
         _logger = logger;
         _validator = validator;
         _mapper = mapper;
+        _cache = cache;
+        _metricsStore = metricsStore;
     }
 
     public async Task<IResult> Handle(CreateOrderProfileRequest request)
@@ -55,6 +67,7 @@ public class CreateOrderHandler
                     ValidationDuration = validationStopwatch.Elapsed, TotalDuration = totalStopwatch.Elapsed, Success = false, ErrorReason = "Validation failed" 
                 };
                 _logger.LogOrderCreationMetrics(metrics);
+                _metricsStore.AddMetric(metrics);
 
                 return Results.ValidationProblem(validationResult.ToDictionary());
             }
@@ -68,8 +81,10 @@ public class CreateOrderHandler
             dbStopwatch.Stop();
             _logger.LogInformation(LogEvents.DatabaseOperationCompleted, "Database operation completed for OrderId {OrderId}.", order.Id);
 
-            _logger.LogInformation(LogEvents.CacheOperationPerformed, "Cache invalidation signal sent for key 'all_orders'.");
-
+            string categoryCacheKey = $"orders_category_{request.Category}";
+            _cache.Remove(categoryCacheKey);
+            _logger.LogInformation(LogEvents.CacheOperationPerformed, "Invalidated cache for key '{CacheKey}'", categoryCacheKey);
+            
             totalStopwatch.Stop();
             
             metrics = new OrderCreationMetrics { 
@@ -77,6 +92,7 @@ public class CreateOrderHandler
                 ValidationDuration = validationStopwatch.Elapsed, DatabaseSaveDuration = dbStopwatch.Elapsed, TotalDuration = totalStopwatch.Elapsed, Success = true 
             };
             _logger.LogOrderCreationMetrics(metrics);
+            _metricsStore.AddMetric(metrics);
 
             var resultDto = _mapper.Map<OrderProfileDto>(order);
             return Results.Created($"/orders/{order.Id}", resultDto);
@@ -92,8 +108,8 @@ public class CreateOrderHandler
                 Success = false, ErrorReason = ex.Message 
             };
              _logger.LogOrderCreationMetrics(metrics);
+             _metricsStore.AddMetric(metrics);
             
-            // Re-throw for global exception handler
             throw;
         }
     }
